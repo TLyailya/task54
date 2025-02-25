@@ -1,42 +1,72 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
+	"os"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type Movie struct {
-	Title       string
-	Year        int
-	Director    string
-	Actors      string
-	PosterURL   string
+	Title     string
+	Year      int
+	Director string
+	Actors    string
+	PosterURL string
+}
+
+func getMovies() ([]Movie, error) {
+	// Получаем переменные окружения для подключения к базе данных
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASS")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
+
+	// Формируем строку подключения
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", dbUser, dbPass, dbHost, dbPort, dbName)
+
+	// Открываем подключение к базе данных
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	// Проверяем подключение
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+
+	// Выполняем запрос к базе данных
+	rows, err := db.Query("SELECT title, year, director, actors, poster_url FROM movies")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var movies []Movie
+	for rows.Next() {
+		var m Movie
+		if err := rows.Scan(&m.Title, &m.Year, &m.Director, &m.Actors, &m.PosterURL); err != nil {
+			return nil, err
+		}
+		movies = append(movies, m)
+	}
+
+	return movies, nil
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	movies := []Movie{
-		{
-			Title:     "Бандитский Петербург. Адвокат.",
-			Year:      2001,
-			Director:  "Петр Буслов",
-			Actors:    "Александр Баширов, Сергей Гармаш",
-			PosterURL: "https://upload.wikimedia.org/wikipedia/ru/thumb/7/75/%D0%91%D0%B0%D0%BD%D0%B4%D0%B8%D1%82%D1%81%D0%BA%D0%B8%D0%B9_%D0%9F%D0%B5%D1%82%D0%B5%D1%80%D0%B1%D1%83%D1%80%D0%B3._%D0%90%D0%B4%D0%B2%D0%BE%D0%BA%D0%B0%D1%82._%D0%9F%D0%BB%D0%B0%D0%BA%D0%B0%D1%82.jpg/500px-%D0%91%D0%B0%D0%BD%D0%B4%D0%B8%D1%82%D1%81%D0%BA%D0%B8%D0%B9_%D0%9F%D0%B5%D1%82%D0%B5%D1%80%D0%B1%D1%83%D1%80%D0%B3._%D0%90%D0%B4%D0%B2%D0%BE%D0%BA%D0%B0%D1%82._%D0%9F%D0%BB%D0%B0%D0%BA%D0%B0%D1%82.jpg",
-		},
-		{
-			Title:     "Зеленая миля",
-			Year:      1999,
-			Director:  "Фрэнк Дарабонт",
-			Actors:    "Том Хэнкс, Майкл Кларк Дункан",
-			PosterURL: "https://upload.wikimedia.org/wikipedia/ru/thumb/0/09/The_Green_Mile_%28poster%29.jpg/500px-The_Green_Mile_%28poster%29.jpg",
-		},
-		{
-			Title:     "Мы Миллеры",
-			Year:      2013,
-			Director:  "Роберт Швентке",
-			Actors:    "Дженнифер Энистон, Джейсон Судейкис",
-			PosterURL: "https://upload.wikimedia.org/wikipedia/ru/thumb/0/06/Were_the_Millers_poster.jpg/500px-Were_the_Millers_poster.jpg",
-		},
+	movies, err := getMovies()
+	if err != nil {
+		http.Error(w, "Ошибка при подключении к базе данных", http.StatusInternalServerError)
+		log.Println(err)
+		return
 	}
 
 	tmpl, err := template.New("movies").Parse(`
